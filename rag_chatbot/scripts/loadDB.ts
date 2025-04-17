@@ -5,7 +5,6 @@ import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/we
 type SimilarityMetric = "dot_product" | "cosine" | "euclidean";
 
 import dotenv from "dotenv";
-import { log } from "console";
 dotenv.config();
 
 const ASTRA_DB_NAMESPACE = process.env.ASTRA_DB_NAMESPACE;
@@ -86,7 +85,7 @@ const scrapePage = async (url: string) => {
     const loader = new PuppeteerWebBaseLoader(url, {
       launchOptions: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // 👈 Add this
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
       },
       gotoOptions: {
         waitUntil: "domcontentloaded"
@@ -101,7 +100,6 @@ const scrapePage = async (url: string) => {
   }
   
   // deleteCollection().then(() => 
-  //hey//
     
     createcollection().then(() => loadSampleData())
   
