@@ -101,6 +101,7 @@ const scrapePage = async (url: string) => {
   }
   
   // deleteCollection().then(() => 
+  //hey//
     
     createcollection().then(() => loadSampleData())
   
