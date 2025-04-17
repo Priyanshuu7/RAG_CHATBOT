@@ -1,20 +1,46 @@
 import {RecursiveCharacterTextSplitter} from "langchain/text_splitter";
 import {DataAPIClient} from "@datastax/astra-db-ts";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 type SimilarityMetric = "dot_product" | "cosine" | "euclidean";
 
 import dotenv from "dotenv";
+import { log } from "console";
 dotenv.config();
 
 const ASTRA_DB_NAMESPACE = process.env.ASTRA_DB_NAMESPACE;
 const ASTRA_DB_COLLECTION = process.env.ASTRA_DB_COLLECTION;
 const ASTRA_DB_API_ENDPOINT = process.env.ASTRA_DB_API_ENDPOINT;
 const ASTRA_DB_APPLICATION_TOKEN = process.env.ASTRA_DB_APPLICATION_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "embedding-001" });
 
-const openai = new OpenAI({apiKey: OPENAI_API_KEY});
+const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN)
+const db = client.db(ASTRA_DB_API_ENDPOINT, {keyspace: ASTRA_DB_NAMESPACE});
+
+const splitter = new RecursiveCharacterTextSplitter({chunkSize: 512, chunkOverlap: 100})
+
+const createcollection = async(SimilarityMetric : SimilarityMetric = "dot_product") => {
+    const res = await db.createCollection(ASTRA_DB_COLLECTION, {
+        vector: {
+            dimension: 768,
+            metric: SimilarityMetric
+        }
+    })
+
+    console.log(res)
+}
+
+// const deleteCollection = async() => {
+//     try {
+//         await db.dropCollection(ASTRA_DB_COLLECTION);
+//         console.log("Collection deleted successfully");
+//     } catch (error) {
+//         console.log("Collection might not exist or error deleting:", error);
+//     }
+// }
 
 const f1Data = [
     'https://en.wikipedia.org/wiki/Formula_One',
@@ -26,35 +52,32 @@ const f1Data = [
     'https://www.formula1.com/en/racing/2024.html'
 ]
 
-const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN)
-const db = client.db(ASTRA_DB_API_ENDPOINT, {keyspace: ASTRA_DB_NAMESPACE});
-
-const splitter = new RecursiveCharacterTextSplitter({chunkSize: 512, chunkOverlap: 100})
-
-const createcollection = async(SimilarityMetric : SimilarityMetric = "dot_product") => {
-    const res = await db.createCollection(ASTRA_DB_COLLECTION, {
-        vector: {
-            dimension: 1536,
-            metric: SimilarityMetric
-        }
-    })
-
-    console.log(res)
-}
-
 const loadSampleData = async() => {
     const collection = await db.collection(ASTRA_DB_COLLECTION);
     for await(const url of f1Data) {
         const content = await scrapePage(url);
         const chunks = await splitter.splitText(content);
         for await(const chunk of chunks) {
-            const embedding = await openai
-                .embeddings
-                .create({model: "text-embedding-3-small", input: chunk, encoding_format: "float"});
-
-            const vector = embedding.data[0].embedding
-            const res = await collection.insertOne({$vector: vector, text: chunk});
-            console.log(res)
+            try {
+                const result = await model.embedContent(chunk);
+                const vector = result.embedding.values;
+                
+                // Ensure the vector has the correct dimension
+                if (vector.length !== 768) {
+                    console.error(`Vector dimension mismatch: expected 768, got ${vector.length}`);
+                    continue;
+                }
+          
+                const res = await collection.insertOne({
+                    $vector: vector,
+                    text: chunk
+                });
+                console.log("Successfully inserted document");
+                console.log(res.insertedId)
+              
+            } catch (error) {
+                console.error("Error processing chunk:", error);
+            }
         }
     }
 };
@@ -77,4 +100,8 @@ const scrapePage = async (url: string) => {
     return (await loader.scrape()).replace(/<[^>]*>?/g, "")
   }
   
-  createcollection().then(() => loadSampleData())
+  // deleteCollection().then(() => 
+    
+    createcollection().then(() => loadSampleData())
+  
+  // )
